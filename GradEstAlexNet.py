@@ -108,12 +108,6 @@ with torch.no_grad():
 print('Accuracy of the network on the 10000 test images: %d %%' % (
     100 * correct / total))
 
-# set criterion and optimizer
-import torch.optim as optim
-
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.SGD(alexnet.parameters(), lr=0.001, momentum=0.9)
-
 # get 10K from both train and test data
 att_train_loader = torch.utils.data.DataLoader(trainset, batch_size=10000,
                                           shuffle=True, num_workers=2)
@@ -190,6 +184,12 @@ class Attack(nn.Module):
         return x
     
 attack = Attack()
+
+# set criterion and optimizer
+import torch.optim as optim
+
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.SGD(attack.parameters(), lr=0.001, momentum=0.9)
 
 # train attack model
 for epoch in range(2):  # loop over the dataset multiple times
