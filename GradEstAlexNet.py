@@ -158,6 +158,40 @@ att_train_dataset = torch.utils.data.TensorDataset(att_train_input, att_train_la
 att_train_dataloader = torch.utils.data.DataLoader(att_train_dataset, batch_size=256,
                                           shuffle=True, num_workers=2)
 
+# set up test data
+att_test_train_data = train_data[8000:10000]
+att_test_train_target = train_targets[8000:10000]
+att_test_test_data = test_data[8000:10000]
+att_test_test_target = test_targets[8000:10000]
+
+att_test_data = torch.cat((att_test_train_data, att_test_test_data))
+att_test_target = torch.cat((att_test_train_target, att_test_test_target))
+
+
+att_test_input = torch.zeros(4000,3,32,32)
+
+for i in range(0, 4000):
+    alexnet.zero_grad()
+    input = att_test_data[[i]]
+    input.requires_grad_(True)
+    output = alexnet(input)
+    target = att_test_target[[i]]
+
+    loss = criterion(output, target)
+    loss.backward()
+    g = input.grad.data
+    
+    att_test_input[i] = g
+
+att_test_label = torch.ones(4000, dtype = torch.int64)
+for i in range(0,2000):
+    att_test_label[i] = 0
+
+att_test_dataset = torch.utils.data.TensorDataset(att_test_input, att_test_label)
+att_test_dataloader = torch.utils.data.DataLoader(att_test_dataset, batch_size=4,
+                                          shuffle=True, num_workers=2)
+
+
 # create attack model
 class Attack(nn.Module):
 
@@ -191,7 +225,7 @@ attack = Attack()
 # set optimizer
 import torch.optim as optim
 
-optimizer = optim.SGD(attack.parameters(), lr=0.001, momentum=0.9)
+optimizer = optim.Adam(attack.parameters(), lr=0.001, betas=(0.9,0.999),eps=1e-08,weight_decay=0,amsgrad=False)
 
 
 # train attack model
@@ -212,48 +246,32 @@ for epoch in range(2):  # loop over the dataset multiple times
 
         # print statistics
         running_loss += loss.item()
-        if i % 10 == 9:    # print every 10 mini-batches
+        if i % 60 == 59:    # print once per epoch
             print('[%d, %5d] loss: %.3f' %
-                  (epoch + 1, i + 1, running_loss / 10))
+                  (epoch + 1, i + 1, running_loss / 60))
             running_loss = 0.0
+
+	    # evaluate attack mode
+            attack.eval()
+
+	    correct = 0
+            total = 0
+            with torch.no_grad():
+    		for data in att_test_dataloader:
+        	    images, labels = data
+        	    outputs = attack(images)
+        	    _, predicted = torch.max(outputs.data, 1)
+        	    total += labels.size(0)
+        	    correct += (predicted == labels).sum().item()
+	    attack.train
+
+print('Accuracy of the network on the test images: %d %%' % (
+    100 * correct / total))
 
 print('Finished Training')
 
 PATH = './attack_net.pth'
 torch.save(attack.state_dict(), PATH)
-
-# set up test data
-att_test_train_data = train_data[8000:10000]
-att_test_train_target = train_targets[8000:10000]
-att_test_test_data = test_data[8000:10000]
-att_test_test_target = test_targets[8000:10000]
-
-att_test_data = torch.cat((att_test_train_data, att_test_test_data))
-att_test_target = torch.cat((att_test_train_target, att_test_test_target))
-
-
-att_test_input = torch.zeros(4000,3,32,32)
-
-for i in range(0, 4000):
-    alexnet.zero_grad()
-    input = att_test_data[[i]]
-    input.requires_grad_(True)
-    output = alexnet(input)
-    target = att_test_target[[i]]
-
-    loss = criterion(output, target)
-    loss.backward()
-    g = input.grad.data
-    
-    att_test_input[i] = g
-
-att_test_label = torch.ones(4000, dtype = torch.int64)
-for i in range(0,2000):
-    att_test_label[i] = 0
-
-att_test_dataset = torch.utils.data.TensorDataset(att_test_input, att_test_label)
-att_test_dataloader = torch.utils.data.DataLoader(att_test_dataset, batch_size=4,
-                                          shuffle=True, num_workers=2)
 
 # evaluate attack mode
 attack.eval()
