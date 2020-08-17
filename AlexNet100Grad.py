@@ -24,7 +24,7 @@ trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
                                         download=True, transform=transform_test)
 
 trainloader = torch.utils.data.DataLoader(trainset, batch_size=4,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 
 
 testset = torchvision.datasets.CIFAR100(root='./data', train=False,
@@ -90,13 +90,13 @@ criterion = nn.CrossEntropyLoss()
 
 # get 10K from both train and test data
 att_train_loader = torch.utils.data.DataLoader(trainset, batch_size=10000,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 att_train_enum = enumerate(att_train_loader)
 batch_idx, (train_data, train_targets) = next(att_train_enum)
 
 
 att_test_loader = torch.utils.data.DataLoader(testset, batch_size=10000,
-                                         shuffle=True, num_workers=2)
+                                         shuffle=False, num_workers=2)
 att_test_enum = enumerate(att_test_loader)
 batch_idx, (test_data, test_targets) = next(att_test_enum)
 
@@ -133,7 +133,7 @@ for i in range(0,8000):
 # create data loader
 att_train_dataset = torch.utils.data.TensorDataset(att_train_input, att_train_label)
 att_train_dataloader = torch.utils.data.DataLoader(att_train_dataset, batch_size=256,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 
 # set up test data
 att_test_train_data = train_data[8000:10000]
@@ -166,7 +166,7 @@ for i in range(0,2000):
 
 att_test_dataset = torch.utils.data.TensorDataset(att_test_input, att_test_label)
 att_test_dataloader = torch.utils.data.DataLoader(att_test_dataset, batch_size=4,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 
 
 # create attack model

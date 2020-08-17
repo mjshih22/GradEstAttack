@@ -83,7 +83,7 @@ def _mem_inf_thre(num_classes, s_tr_values, s_te_values, t_tr_values, t_te_value
                 predicted[i] = 0
     for i in range(0,2000):
         if(t_te_values[i]>=thresholds[t_te_labels[i]]):
-            predicted[2000+i]
+            predicted[2000+i] = 0
     return predicted
 
 transform_test = transforms.Compose([
@@ -161,13 +161,13 @@ criterion = nn.CrossEntropyLoss()
 
 # get 10K from both train and test data
 att_train_loader = torch.utils.data.DataLoader(trainset, batch_size=10000,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 att_train_enum = enumerate(att_train_loader)
 batch_idx, (train_data, train_targets) = next(att_train_enum)
 
 
 att_test_loader = torch.utils.data.DataLoader(testset, batch_size=10000,
-                                         shuffle=True, num_workers=2)
+                                         shuffle=False, num_workers=2)
 att_test_enum = enumerate(att_test_loader)
 batch_idx, (test_data, test_targets) = next(att_test_enum)
 
@@ -208,7 +208,7 @@ for i in range(0,2000):
 
 att_test_dataset = torch.utils.data.TensorDataset(att_test_input, att_test_label)
 att_test_dataloader = torch.utils.data.DataLoader(att_test_dataset, batch_size=4,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 
 
 # create attack model
@@ -289,19 +289,19 @@ print('Accuracy of the network on the test images using correctness: {acc:.3f}'.
 # create data loaders
 shadow_train_dataset = torch.utils.data.TensorDataset(att_train_train_data, att_train_train_target)
 shadow_train_dataloader = torch.utils.data.DataLoader(shadow_train_dataset, batch_size=4,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 
 shadow_test_dataset = torch.utils.data.TensorDataset(att_train_test_data, att_train_test_target)
 shadow_test_dataloader = torch.utils.data.DataLoader(shadow_test_dataset, batch_size=4,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 
 target_train_dataset = torch.utils.data.TensorDataset(att_test_train_data, att_test_train_target)
 target_train_dataloader = torch.utils.data.DataLoader(target_train_dataset, batch_size=4,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 
 target_test_dataset = torch.utils.data.TensorDataset(att_test_test_data, att_test_test_target)
 target_test_dataloader = torch.utils.data.DataLoader(target_test_dataset, batch_size=4,
-                                          shuffle=True, num_workers=2)
+                                          shuffle=False, num_workers=2)
 
 # create blackbox_attacks variables
 shadow_train_performance,shadow_test_performance,target_train_performance,target_test_performance = \
