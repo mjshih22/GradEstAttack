@@ -27,7 +27,7 @@ def prepare_model_performance(shadow_model, shadow_train_loader, shadow_test_loa
 
         for (inputs, labels) in dataloader:
             return_labels.append(labels.numpy())
-            outputs = model.forward(inputs) 
+            outputs = model.forward(inputs.float()) 
             return_outputs.append( softmax_by_row(outputs.data.cpu().numpy()) )
         return_outputs = np.concatenate(return_outputs)
         return_labels = np.concatenate(return_labels)
@@ -78,18 +78,18 @@ def _mem_inf_thre(num_classes, s_tr_values, s_te_values, t_tr_values, t_te_value
                    s_te_labels, t_tr_labels, t_te_labels):
     # perform membership inference attack by thresholding feature values: the feature can be prediction confidence,
     # (negative) prediction entropy, and (negative) modified entropy
-    predicted = torch.ones(4000)
+    predicted = torch.ones(10000)
     thresholds = np.zeros(100)
     for num in range(num_classes):
         thre = _thre_setting(s_tr_values[s_tr_labels==num], s_te_values[s_te_labels==num])
         thresholds[num] = thre
 
-    for i in range(0,2000):
+    for i in range(0,5000):
         if(t_tr_values[i]>=thresholds[t_tr_labels[i]]):
                 predicted[i] = 0
-    for i in range(0,2000):
+    for i in range(0,5000):
         if(t_te_values[i]>=thresholds[t_te_labels[i]]):
-            predicted[2000+i] = 0
+            predicted[5000+i] = 0
     return predicted
 
 def tensor_data_create(features, labels):
@@ -143,14 +143,20 @@ def prepare_texas_data():
     train_len = train_data.shape[0]
     r = np.arange(train_len)
     np.random.shuffle(r)
-    att_train_indices = r[:8000]
-    att_test_indices = r[8000:10000]
+    shadow_indices = r[:train_len//2]
+    target_indices = np.delete(np.arange(train_len), shadow_indices)
 
-    shadow_train_data, shadow_train_label = train_data[att_train_indices], train_label[att_train_indices]
-    target_train_data, target_train_label = train_data[att_test_indices], train_label[att_test_indices]
+    shadow_train_data, shadow_train_label = train_data[shadow_indices], train_label[shadow_indices]
+    target_train_data, target_train_label = train_data[target_indices], train_label[target_indices]
 
-    shadow_test_data, shadow_test_label = test_data[att_train_indices], test_label[att_train_indices]
-    target_test_data, target_test_label = test_data[att_test_indices], test_label[att_test_indices]
+    test_len = 1*train_len
+    r = np.arange(test_len)
+    np.random.shuffle(r)
+    shadow_indices = r[:test_len//2]
+    target_indices = np.delete(np.arange(test_len), shadow_indices)
+
+    shadow_test_data, shadow_test_label = test_data[shadow_indices], test_label[shadow_indices]
+    target_test_data, target_test_label = test_data[target_indices], test_label[target_indices]
 
     print('Data loading finished')
     
@@ -200,6 +206,8 @@ model.eval()
 # set criterion
 criterion = nn.CrossEntropyLoss()
 
+test_size = 10000
+
 # load data
 att_train_train_data, att_train_train_target, att_test_train_data, att_test_train_target, \
     att_train_test_data, att_train_test_target, att_test_test_data, att_test_test_target = prepare_texas_data()
@@ -211,8 +219,37 @@ att_train_train_target = torch.from_numpy(att_train_train_target)
 att_train_test_data = torch.from_numpy(att_train_test_data)
 att_train_test_target = torch.from_numpy(att_train_test_target)
 
-# set up attack model test data
+att_train_data = torch.cat((att_train_train_data, att_train_test_data))
+att_train_target = torch.cat((att_train_train_target, att_train_test_target))
 
+# get grad train data
+att_train_input = torch.zeros(test_size,6169)
+
+for i in range(0, test_size):
+    model.zero_grad()
+    input = att_train_data[[i]]
+    input.requires_grad_(True)
+    output = model(input.float())
+    target = att_train_target[[i]]
+
+    loss = criterion(output, target.long())
+    loss.backward()
+    g = input.grad.data
+    
+    att_train_input[i] = g
+
+# make targets 
+att_train_label = torch.ones(test_size, dtype = torch.int64)
+for i in range(0,int(test_size/2)):
+    att_train_label[i] = 0
+
+# create data loader
+att_train_dataset = torch.utils.data.TensorDataset(att_train_input, att_train_label)
+att_train_dataloader = torch.utils.data.DataLoader(att_train_dataset, batch_size=256,
+                                          shuffle=True, num_workers=2)
+
+
+# set up attack model test data
 att_test_train_data = torch.from_numpy(att_test_train_data)
 att_test_train_target = torch.from_numpy(att_test_train_target)
 
@@ -222,10 +259,10 @@ att_test_test_target = torch.from_numpy(att_test_test_target)
 att_test_data = torch.cat((att_test_train_data, att_test_test_data))
 att_test_target = torch.cat((att_test_train_target, att_test_test_target))
 
+# get grad test data
+att_test_input = torch.zeros(test_size,6169)
 
-att_test_input = torch.zeros(4000,6169)
-
-for i in range(0, 4000):
+for i in range(0, test_size):
     model.zero_grad()
     input = att_test_data[[i]]
     input.requires_grad_(True)
@@ -238,12 +275,14 @@ for i in range(0, 4000):
     
     att_test_input[i] = g
 
-att_test_label = torch.ones(4000, dtype = torch.int64)
-for i in range(0,2000):
+# make targets
+att_test_label = torch.ones(test_size, dtype = torch.int64)
+for i in range(0,int(test_size/2)):
     att_test_label[i] = 0
 
+#create dataloader
 att_test_dataset = torch.utils.data.TensorDataset(att_test_input, att_test_label)
-att_test_dataloader = torch.utils.data.DataLoader(att_test_dataset, batch_size=4,
+att_test_dataloader = torch.utils.data.DataLoader(att_test_dataset, batch_size=256,
                                           shuffle=False, num_workers=2)
 
 # create attack model
@@ -274,12 +313,52 @@ import torch.optim as optim
 
 optimizer = optim.Adam(attack.parameters(), lr=0.001, betas=(0.9,0.999),eps=1e-08,weight_decay=0,amsgrad=False)
 
+# train attack model
+for epoch in range(50):  # loop over the dataset multiple times
+    running_loss = 0.0
+    for i, data in enumerate(att_train_dataloader, 0):
+        # get the inputs; data is a list of [inputs, labels]
+        inputs, labels = data
+
+        # zero the parameter gradients
+        optimizer.zero_grad()
+
+        # forward + backward + optimize
+        outputs = attack(inputs.float())
+        loss = criterion(outputs, labels.long())
+        loss.backward()
+        optimizer.step()
+
+        # print statistics
+        running_loss += loss.item()
+        if i % 35 == 34:    # print once per epoch
+            print('[%d, %5d] loss: %.3f' %
+                  (epoch + 1, i + 1, running_loss / 60))
+            running_loss = 0.0
+
+	    # evaluate attack mode
+            attack.eval()
+
+            correct = 0
+            total = 0
+            with torch.no_grad():
+                for data in att_test_dataloader:
+                    images, labels = data
+                    outputs = attack(images.float())
+                    _, predicted = torch.max(outputs.data, 1)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+            print('Accuracy of the network on the test images using gradients of inputs: {acc:.3f}'.format(acc=100*correct/total))
+
+            attack.train()
+
+print('Finished Training')
+
 PATH = './attack_net.pth'
-attack.load_state_dict(torch.load(PATH))
+torch.save(attack.state_dict(), PATH)
 
 # evaluate attack mode
 attack.eval()
-
 
 # get prediction of gradient
 correct = 0
@@ -296,11 +375,10 @@ with torch.no_grad():
         
 print('Accuracy of the network on the test images using gradients of inputs: {acc:.3f}'.format(acc=100*correct/total))
 
-
 #get prediction of correctness
-predicted_corr = torch.ones(4000)
+predicted_corr = torch.ones(test_size)
 correct = 0
-for i in range(0, 4000):
+for i in range(0, test_size):
     model.zero_grad()
     input = att_test_data[[i]]
     output = model(input.float())
@@ -309,7 +387,7 @@ for i in range(0, 4000):
     if(predicted == target):
         predicted_corr[i] = 0
 
-for i in range(0,4000):
+for i in range(0,test_size):
     if(predicted_corr[i] == att_test_label[i]):
         correct +=1
 
@@ -363,7 +441,7 @@ t_te_m_entr = np.array([_m_entr_comp(t_te_outputs[i], t_te_labels[i]) for i in r
 predicted_conf = _mem_inf_thre(num_classes, s_tr_conf, s_te_conf, t_tr_conf, t_te_conf, s_tr_labels,
                                s_te_labels, t_tr_labels, t_te_labels)
 correct = 0
-for i in range(0,4000):
+for i in range(0,test_size):
     if(predicted_conf[i] == att_test_label[i]):
         correct +=1
 
@@ -373,7 +451,7 @@ print('Accuracy of the network on the test images using confidence: {acc:.3f}'.f
 predicted_entr = _mem_inf_thre(num_classes, -s_tr_entr, -s_te_entr, -t_tr_entr, -t_te_entr, s_tr_labels,
                                s_te_labels, t_tr_labels, t_te_labels)
 correct = 0
-for i in range(0,4000):
+for i in range(0,test_size):
     if(predicted_entr[i] == att_test_label[i]):
         correct +=1
 
@@ -383,20 +461,20 @@ print('Accuracy of the network on the test images using entropy: {acc:.3f}'.form
 predicted_m_entr = _mem_inf_thre(num_classes, -s_tr_m_entr, -s_te_m_entr, -t_tr_m_entr, -t_te_m_entr, s_tr_labels,
                                s_te_labels, t_tr_labels, t_te_labels)
 correct = 0
-for i in range(0,4000):
+for i in range(0,test_size):
     if(predicted_m_entr[i] == att_test_label[i]):
         correct +=1
 
 print('Accuracy of the network on the test images using modified entropy: {acc:.3f}'.format(acc=100*correct/total))
 
-predicted_ens = torch.zeros(4000)
-for i in range(0,4000):
-    ens = predicted_grad[i] + predicted_corr[i] + predicted_conf[i] + predicted_entr[i] + predicted_m_entr[i]
-    if(ens >= 3):
+predicted_ens = torch.zeros(test_size)
+for i in range(0,test_size):
+    ens = 3*predicted_grad[i] + predicted_corr[i] + predicted_conf[i] + predicted_entr[i] + predicted_m_entr[i]
+    if(ens/7 >=.5):
         predicted_ens[i] = 1
 
 correct = 0
-for i in range(0,4000):
+for i in range(0,test_size):
     if(predicted_ens[i] == att_test_label[i]):
         correct +=1
 

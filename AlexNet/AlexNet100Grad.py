@@ -8,31 +8,24 @@ import torchvision
 import numpy as np
 import torchvision.transforms as transforms
 
-transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
-
-transform_test = transforms.Compose([
+transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
     ])
 
 trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
-                                        download=True, transform=transform_test)
-
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=4,
-                                          shuffle=False, num_workers=2)
-
+                                        download=True, transform=transform)
 
 testset = torchvision.datasets.CIFAR100(root='./data', train=False,
-                                       download=True, transform=transform_test)
+                                       download=True, transform=transform)
 
-testloader = torch.utils.data.DataLoader(testset, batch_size=4,
-                                         shuffle=False, num_workers=2)
+att_train_train, att_test_train, _ = torch.utils.data.random_split(trainset, [8000,2000, 40000], generator=torch.Generator().manual_seed(42))
+att_train_test, att_test_test = torch.utils.data.random_split(testset, [8000,2000], generator=torch.Generator().manual_seed(42))
 
+att_train_train_loader = torch.utils.data.DataLoader(att_train_train, batch_size=100, shuffle=False, num_workers=2)
+att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=100, shuffle=False, num_workers=2)
+att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=100, shuffle=False, num_workers=2)
+att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=100, shuffle=False, num_workers=2)
 
 import torch.nn as nn
 
@@ -88,42 +81,32 @@ alexnet.eval()
 # set criterion
 criterion = nn.CrossEntropyLoss()
 
-# get 10K from both train and test data
-att_train_loader = torch.utils.data.DataLoader(trainset, batch_size=10000,
-                                          shuffle=False, num_workers=2)
-att_train_enum = enumerate(att_train_loader)
-batch_idx, (train_data, train_targets) = next(att_train_enum)
-
-
-att_test_loader = torch.utils.data.DataLoader(testset, batch_size=10000,
-                                         shuffle=False, num_workers=2)
-att_test_enum = enumerate(att_test_loader)
-batch_idx, (test_data, test_targets) = next(att_test_enum)
-
-# take first 8K and use as attack train data
-att_train_train_data = train_data[0:8000]
-att_train_train_target = train_targets[0:8000]
-att_train_test_data = test_data[0:8000]
-att_train_test_target = test_targets[0:8000]
-
-att_train_data = torch.cat((att_train_train_data, att_train_test_data))
-att_train_target = torch.cat((att_train_train_target, att_train_test_target))
-
-# get grad train data
-att_train_input = torch.zeros(16000,3,32,32)
-
-for i in range(0, 16000):
-    alexnet.zero_grad()
-    input = att_train_data[[i]]
+# get grad on train data
+for i, data in enumerate(att_train_train_loader):
+    resnet.zero_grad()
+    input, target = data
     input.requires_grad_(True)
-    output = alexnet(input)
-    target = att_train_target[[i]]
+    output = resnet(input.cuda())
 
-    loss = criterion(output, target)
+    loss = criterion(output, target.cuda())
     loss.backward()
     g = input.grad.data
     
-    att_train_input[i] = g
+    if i == 0:
+        att_train_input = g
+    else:
+        att_train_input = torch.cat((att_train_input, g))
+        
+for i, data in enumerate(att_train_test_loader):
+    resnet.zero_grad()
+    input, target = data
+    input.requires_grad_(True)
+    output = resnet(input.cuda())
+
+    loss = criterion(output, target.cuda())
+    loss.backward()
+    g = input.grad.data
+    att_train_input = torch.cat((att_train_input, g))
 
 # make targets 
 att_train_label = torch.ones(16000, dtype = torch.int64)
@@ -133,42 +116,46 @@ for i in range(0,8000):
 # create data loader
 att_train_dataset = torch.utils.data.TensorDataset(att_train_input, att_train_label)
 att_train_dataloader = torch.utils.data.DataLoader(att_train_dataset, batch_size=256,
-                                          shuffle=False, num_workers=2)
+                                          shuffle=True, num_workers=2)
 
-# set up test data
-att_test_train_data = train_data[8000:10000]
-att_test_train_target = train_targets[8000:10000]
-att_test_test_data = test_data[8000:10000]
-att_test_test_target = test_targets[8000:10000]
-
-att_test_data = torch.cat((att_test_train_data, att_test_test_data))
-att_test_target = torch.cat((att_test_train_target, att_test_test_target))
-
-
-att_test_input = torch.zeros(4000,3,32,32)
-
-for i in range(0, 4000):
-    alexnet.zero_grad()
-    input = att_test_data[[i]]
+# get grad on test data
+for i, data in enumerate(att_test_train_loader):
+    resnet.zero_grad()
+    input, target = data
     input.requires_grad_(True)
-    output = alexnet(input)
-    target = att_test_target[[i]]
+    output = resnet(input.cuda())
 
-    loss = criterion(output, target)
+    loss = criterion(output, target.cuda())
     loss.backward()
     g = input.grad.data
     
-    att_test_input[i] = g
+    if i == 0:
+        att_test_input = g
+    else:
+        att_test_input = torch.cat((att_test_input, g))
+        
+for i, data in enumerate(att_test_test_loader):
+    resnet.zero_grad()
+    input, target = data
+    input.requires_grad_(True)
+    output = resnet(input.cuda())
 
+    loss = criterion(output, target.cuda())
+    loss.backward()
+    g = input.grad.data
+    att_test_input = torch.cat((att_test_input, g))
+
+# make targets 
 att_test_label = torch.ones(4000, dtype = torch.int64)
 for i in range(0,2000):
     att_test_label[i] = 0
 
+# create data loader
 att_test_dataset = torch.utils.data.TensorDataset(att_test_input, att_test_label)
-att_test_dataloader = torch.utils.data.DataLoader(att_test_dataset, batch_size=4,
+att_test_dataloader = torch.utils.data.DataLoader(att_test_dataset, batch_size=500,
                                           shuffle=False, num_workers=2)
 
-
+print("Data has been loaded")
 # create attack model
 class Attack(nn.Module):
 
@@ -203,7 +190,6 @@ attack = Attack()
 import torch.optim as optim
 
 optimizer = optim.Adam(attack.parameters(), lr=0.001, betas=(0.9,0.999),eps=1e-08,weight_decay=0,amsgrad=False)
-
 
 # train attack model
 for epoch in range(10):  # loop over the dataset multiple times

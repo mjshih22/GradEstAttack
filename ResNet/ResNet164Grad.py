@@ -259,7 +259,7 @@ for i in range(0,8000):
 # create data loader
 att_train_dataset = torch.utils.data.TensorDataset(att_train_input, att_train_label)
 att_train_dataloader = torch.utils.data.DataLoader(att_train_dataset, batch_size=256,
-                                          shuffle=False, num_workers=2)
+                                          shuffle=True, num_workers=2)
 
 # get grad on test data
 for i, data in enumerate(att_test_train_loader):
