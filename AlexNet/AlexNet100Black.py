@@ -33,12 +33,6 @@ torch.manual_seed(torch.initial_seed())
 att_train_test, att_val_test, att_test_test = torch.utils.data.random_split(testset, [train_size, val_size, test_size])
 torch.manual_seed(torch.initial_seed())
 
-
-print(len(att_train_train))
-print(len(att_train_test))
-print(len(att_test_train))
-print(len(att_test_test))
-
 att_train_train_loader = torch.utils.data.DataLoader(att_train_train, batch_size=100, shuffle=True, num_workers=2)
 att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=100, shuffle=True, num_workers=2)
 # att_val_train_loader = torch.utils.data.DataLoader(att_val_train, batch_size=100, shuffle=False, num_workers=2)
@@ -46,14 +40,8 @@ att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=1
 att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=100, shuffle=True, num_workers=2)
 att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=100, shuffle=True, num_workers=2)
 
-print(len(att_train_train_loader.dataset))
-print(len(att_train_test_loader.dataset))
-print(len(att_test_train_loader.dataset))
-print(len(att_test_train_loader.dataset))
-
-
 # create AlexNet model with pretrained parameters
-alexnet = alexnet(num_classes = 100)
+target = alexnet(num_classes = 100)
 
 PATH = './model_best.pth.tar'
 checkpoint = torch.load(PATH)
@@ -68,28 +56,14 @@ for k, v in state_dict.items():
     else:
         k = k.replace('module.', '')
     new_state_dict[k] = v
-alexnet.load_state_dict(new_state_dict)
+target.load_state_dict(new_state_dict)
 
-alexnet.eval()
+target.eval()
 
 # perform MIA attacks
 shadow_train_performance,shadow_test_performance,target_train_performance,target_test_performance = \
-    prepare_model_performance(alexnet, att_train_train_loader, att_train_test_loader, 
-                              alexnet, att_test_train_loader, att_test_train_loader)
-
-test1, _ = shadow_train_performance
-test2, _ = shadow_test_performance
-test3, _ = target_train_performance
-test4, _ = target_test_performance
-
-print(test1.shape)
-print(np.linalg.norm(test1))
-print(test2.shape)
-print(np.linalg.norm(test2))
-print(test3.shape)
-print(np.linalg.norm(test3))
-print(test4.shape)
-print(np.linalg.norm(test4))
+    prepare_model_performance(target, att_train_train_loader, att_train_test_loader, 
+                              target, att_test_train_loader, att_test_test_loader)
 
 print('Perform membership inference attacks!!!')
 MIA = black_box_benchmarks(shadow_train_performance,shadow_test_performance,

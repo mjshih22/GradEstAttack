@@ -65,7 +65,7 @@ target.eval()
 criterion = nn.CrossEntropyLoss()
 
 # create data loader with gradients for attack
-att_train_dataloader = getgrad(target, criterion, att_train_train_loader, att_train_test_loader, train_size, batch_size=512)
+att_train_dataloader = getgrad(target, criterion, att_train_train_loader, att_train_test_loader, train_size, batch_size=128)
 att_val_dataloader = getgrad(target, criterion, att_val_train_loader, att_val_test_loader, val_size)
 att_test_dataloader = getgrad(target, criterion, att_test_train_loader, att_test_test_loader, test_size)
 print("Data has been loaded")
@@ -109,17 +109,17 @@ for epoch in range(50):  # loop over the dataset multiple times
             correct = 0
             total = 0
             with torch.no_grad():
-                for data in att_test_dataloader:
+                for data in att_val_dataloader:
                     images, labels = data
                     outputs = attack(images.cuda())
                     _, predicted = torch.max(outputs.data, 1)
                     total += labels.size(0)
                     correct += (predicted == labels.cuda()).sum().item()
-            print('Accuracy of the network on the test images using gradients of inputs: {acc:.3f}'.format(acc=100*correct/total))
+            print('Accuracy of the network on the val images using gradients of inputs: {acc:.3f}'.format(acc=100*correct/total))
             acc=100*correct/total
             if acc > best_acc:
-                print(best_acc)
                 best_acc = acc
+                print(best_acc)
                 torch.save(attack.state_dict(), PATH)
             attack.train()
 
@@ -143,6 +143,20 @@ with torch.no_grad():
 
 print('Accuracy of the network on the train images using gradients of inputs: {acc:.3f}'.format(acc=100*correct/total))
 
+
+
+correct = 0
+total = 0
+with torch.no_grad():
+    for data in att_val_dataloader:
+        images, labels = data
+        outputs = attack(images.cuda())
+        _, predicted = torch.max(outputs.data, 1)
+        total += labels.size(0)
+        correct += (predicted == labels.cuda()).sum().item()
+
+print('Accuracy of the network on the validation images using gradients of inputs: {acc:.3f}'.format(acc=100*correct/total))
+
 correct = 0
 total = 0
 with torch.no_grad():
@@ -154,19 +168,3 @@ with torch.no_grad():
         correct += (predicted == labels.cuda()).sum().item()
 
 print('Accuracy of the network on the test images using gradients of inputs: {acc:.3f}'.format(acc=100*correct/total))
-
-
-""" # evaluate attack model on train and test data
-attack.eval()
-
-correct = 0
-total = 0
-with torch.no_grad():
-    for data in att_val_dataloader:
-        images, labels = data
-        outputs = attack(images)
-        _, predicted = torch.max(outputs.data, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
-
-print('Accuracy of the network on the validation images using gradients of inputs: {acc:.3f}'.format(acc=100*correct/total)) """
