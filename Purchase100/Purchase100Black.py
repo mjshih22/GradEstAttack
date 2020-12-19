@@ -26,7 +26,7 @@ att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=1
 att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=100, shuffle=True, num_workers=2)
 att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=100, shuffle=True, num_workers=2)
 
-checkpoint = torch.load('purchase_natural')
+checkpoint = torch.load('purchase_advreg')
 state_dict = checkpoint['state_dict']
 
 from collections import OrderedDict

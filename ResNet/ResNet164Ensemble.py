@@ -3,12 +3,13 @@
 
 import torch
 import torchvision
-import torch.nn as nn
-import torch.optim as optim
+import numpy as np
 from ens_utils import *
-from purchase import purchase
 from estgrad import estgrad
+from alexnet import alexnet
+from resnet import resnet
 import torchvision.transforms as transforms
+import torch.nn as nn
 
 def _entr_comp(prediction):
     entr = 0
@@ -32,7 +33,7 @@ def _m_entr_comp(prediction, label):
             else:
                 entr += -1*p*np.log(1-p)
     return entr
-
+    
 def _thre_setting(tr_values, te_values):
     value_list = np.concatenate((tr_values, te_values))
     thre, max_acc = 0, 0
@@ -48,59 +49,50 @@ def _mem_inf_thre(num_classes, s_tr_values, s_te_values, t_tr_values, t_te_value
                    s_te_labels, t_tr_labels, t_te_labels):
     # perform membership inference attack by thresholding feature values: the feature can be prediction confidence,
     # (negative) prediction entropy, and (negative) modified entropy
-    predicted = torch.ones(9866)
+    predicted = torch.ones(2000)
     thresholds = np.zeros(100)
     for num in range(num_classes):
         thre = _thre_setting(s_tr_values[s_tr_labels==num], s_te_values[s_te_labels==num])
         thresholds[num] = thre
 
-    for i in range(0,4933):
+    for i in range(0,1000):
         if(t_tr_values[i]>=thresholds[t_tr_labels[i]]):
                 predicted[i] = 0
-    for i in range(0,4933):
+    for i in range(0,1000):
         if(t_te_values[i]>=thresholds[t_te_labels[i]]):
-            predicted[4933+i] = 0
+            predicted[1000+i] = 0
     return predicted
 
-# load pretrained model
-target = purchase(num_classes=100)
-checkpoint = torch.load('purchase_advreg')
-state_dict = checkpoint['state_dict']
+# import CIFAR100 data
+transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+    ])
 
-from collections import OrderedDict
-new_state_dict = OrderedDict()
+trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
+                                        download=True, transform=transform)
+testset = torchvision.datasets.CIFAR100(root='./data', train=False,
+                                       download=True, transform=transform)
 
-for k, v in state_dict.items():
-    if 'module' not in k:
-        k = k
-    else:
-        k = k.replace('module.', '')
-    new_state_dict[k] = v
+# convert data into shadow and target dataloaders. use manual seed to fix dataloaders between instances
+train_size = 8000
+val_size = 1000
+test_size = 1000
+data_train_size = 50000
+remain_size = data_train_size-train_size-val_size-test_size
 
-target.load_state_dict(new_state_dict)
-target.eval()
-
-# set criterion
-criterion = nn.CrossEntropyLoss()
-
-train_size = 9866
-split_size = int(train_size/2)
-val_size = split_size
-test_size = split_size
-
-#load in data
-att_train_train, att_train_test, target_train, target_test = prepare_purchase_data(100)
 torch.manual_seed(42)
-att_val_train, att_test_train = torch.utils.data.random_split(target_train, [split_size, split_size])
+att_train_train, att_val_train, att_test_train, _ = torch.utils.data.random_split(trainset, [train_size, val_size, test_size, remain_size])
 torch.manual_seed(torch.initial_seed())
-att_val_test, att_test_test = torch.utils.data.random_split(target_test, [split_size, split_size])
+att_train_test, att_val_test, att_test_test = torch.utils.data.random_split(testset, [train_size, val_size, test_size])
+torch.manual_seed(torch.initial_seed())
 
-att_train_train_loader = torch.utils.data.DataLoader(att_train_train, batch_size=50, shuffle=True, num_workers=2)
-att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=50, shuffle=True, num_workers=2)
-att_val_train_loader = torch.utils.data.DataLoader(att_val_train, batch_size=50, shuffle=False, num_workers=2)
-att_val_test_loader = torch.utils.data.DataLoader(att_val_test, batch_size=50, shuffle=False, num_workers=2)
-att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=test_size, shuffle=True, num_workers=2)
-att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=test_size, shuffle=True, num_workers=2)
+att_train_train_loader = torch.utils.data.DataLoader(att_train_train, batch_size=100, shuffle=False, num_workers=2)
+att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=100, shuffle=False, num_workers=2)
+att_val_train_loader = torch.utils.data.DataLoader(att_val_train, batch_size=256, shuffle=False, num_workers=2)
+att_val_test_loader = torch.utils.data.DataLoader(att_val_test, batch_size=256, shuffle=False, num_workers=2)
+att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=test_size, shuffle=False, num_workers=2)
+att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=test_size, shuffle=False, num_workers=2)
 
 # prepare test data
 for data in att_test_train_loader:
@@ -110,35 +102,65 @@ for data in att_test_test_loader:
 att_test_data = torch.cat((att_test_train_data, att_test_test_data))
 att_test_target = torch.cat((att_test_train_target, att_test_test_target))
 
+att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=100, shuffle=False, num_workers=2)
+att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=100, shuffle=False, num_workers=2)
+
 # make targets 
 att_test_label = torch.ones(2*test_size, dtype = torch.int64)
 for i in range(0,test_size):
     att_test_label[i] = 0
 
+# create AlexNet model with pretrained parameters
+target = resnet(depth = 164, block_name='bottleNeck')
+target = nn.DataParallel(target).cuda()
+
+PATH = './model_best.pth.tar'
+
+checkpoint = torch.load(PATH)
+state_dict = checkpoint['state_dict']
+
+from collections import OrderedDict
+new_state_dict = OrderedDict()
+
+for k, v in state_dict.items():
+    if 'module' not in k:
+        k = 'module.' + k
+    else:
+        k = k
+    new_state_dict[k] = v
+
+target.load_state_dict(new_state_dict)
+target.eval()
+
+# set criterion for loss
+criterion = nn.CrossEntropyLoss()
+
+# create data loader with gradients for attack
 print("Loading Test Data")
-att_test_dataloader = estgrad(target, criterion, att_test_train_loader, att_test_test_loader, test_size, 256, './advreg_test.t', True, False)
+att_test_dataloader = estgrad(target, criterion, att_test_train_loader, att_test_test_loader, test_size, 256, './att_test_unshuffle.npy', True)
 print("Data has been loaded")
 
-attack = purchase(num_classes = 2)
-
-# load best model
-PATH = './attack_net_advreg5.pth'
+# create attack model
+attack = alexnet(num_classes = 2)
+PATH = './attack_net5.pth'
+attack = nn.DataParallel(attack).cuda()
 attack.load_state_dict(torch.load(PATH))
 
+# evaluate attack mode
 attack.eval()
 
 # get prediction of gradient
 correct = 0
 total = 0
-predicted_grad = torch.zeros(0, dtype = torch.int64)
+predicted_grad = torch.zeros(0, dtype = torch.int64).cuda()
 with torch.no_grad():
     for data in att_test_dataloader:
         images, labels = data
-        outputs = attack(images.float())
+        outputs = attack(images.float().cuda())
         _, pred = torch.max(outputs.data, 1)
         predicted_grad = torch.cat((predicted_grad, pred))
         total += labels.size(0)
-        correct += (pred == labels).sum().item()
+        correct += (pred == labels.cuda()).sum().item()
         
 print('Accuracy of the network on the test images using gradients of inputs: {acc:.3f}'.format(acc=100*correct/total))
 
@@ -149,10 +171,10 @@ correct = 0
 for i in range(0, test_size):
     target.zero_grad()
     input = att_test_data[[i]]
-    output = target(input.float())
+    output = target(input.float().cuda())
     _, predicted = torch.max(output.data, 1)
     label = att_test_target[[i]]
-    if(predicted == label):
+    if(predicted == label.cuda()):
         predicted_corr[i] = 0
 
 for i in range(0,test_size):

@@ -69,7 +69,3 @@ print('Perform membership inference attacks!!!')
 MIA = black_box_benchmarks(shadow_train_performance,shadow_test_performance,
             target_train_performance,target_test_performance,num_classes=100)
 MIA._mem_inf_benchmarks()
-
-
-
-

@@ -5,34 +5,43 @@ import torch
 import torchvision
 import numpy as np
 from utils import *
-from alexnet import alexnet
 import torch.optim as optim
 import torchvision.transforms as transforms
 import torch.nn as nn
+from purchase import purchase
 
-# import CIFAR100 data
-transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    ])
+# load pretrained model
+target = purchase(num_classes=100)
+checkpoint = torch.load('purchase_advreg')
+state_dict = checkpoint['state_dict']
 
-trainset = torchvision.datasets.CIFAR100(root='./data', train=True,
-                                        download=True, transform=transform)
-testset = torchvision.datasets.CIFAR100(root='./data', train=False,
-                                       download=True, transform=transform)
+from collections import OrderedDict
+new_state_dict = OrderedDict()
 
-# convert data into shadow and target dataloaders. use manual seed to fix dataloaders between instances
-train_size = 8000
-val_size = 1000
-test_size = 1000
-data_train_size = 50000
-remain_size = data_train_size-train_size-val_size-test_size
+for k, v in state_dict.items():
+    if 'module' not in k:
+        k = k
+    else:
+        k = k.replace('module.', '')
+    new_state_dict[k] = v
 
+target.load_state_dict(new_state_dict)
+target.eval()
+
+# set criterion
+criterion = nn.CrossEntropyLoss()
+
+train_size = 9866
+split_size = int(train_size/2)
+val_size = split_size
+test_size = split_size
+
+#load in data
+att_train_train, att_train_test, target_train, target_test = prepare_purchase_data(100)
 torch.manual_seed(42)
-att_train_train, att_val_train, att_test_train, _ = torch.utils.data.random_split(trainset, [train_size, val_size, test_size, remain_size])
+att_val_train, att_test_train = torch.utils.data.random_split(target_train, [split_size, split_size])
 torch.manual_seed(torch.initial_seed())
-att_train_test, att_val_test, att_test_test = torch.utils.data.random_split(testset, [train_size, val_size, test_size])
-torch.manual_seed(torch.initial_seed())
+att_val_test, att_test_test = torch.utils.data.random_split(target_test, [split_size, split_size])
 
 att_train_train_loader = torch.utils.data.DataLoader(att_train_train, batch_size=train_size, shuffle=False, num_workers=2)
 att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=train_size, shuffle=False, num_workers=2)
@@ -69,36 +78,14 @@ att_val_test_loader = torch.utils.data.DataLoader(att_val_test, batch_size=256, 
 att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=256, shuffle=False, num_workers=2)
 att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=256, shuffle=False, num_workers=2)
 
-# create AlexNet model with pretrained parameters
-target = alexnet(num_classes = 100)
-
-PATH = './model_best.pth.tar'
-checkpoint = torch.load(PATH)
-state_dict = checkpoint['state_dict']
-
-from collections import OrderedDict
-new_state_dict = OrderedDict()
-
-for k, v in state_dict.items():
-    if 'module' not in k:
-        k = k
-    else:
-        k = k.replace('module.', '')
-    new_state_dict[k] = v
-target.load_state_dict(new_state_dict)
-
-target = nn.DataParallel(target).cuda()
-target.eval()
-
 # set criterion for loss
 criterion = nn.CrossEntropyLoss()
 
-
-grad_train_data = np.load('att_train.npy')
+grad_train_data = np.loadtxt('advreg_train.t')
 grad_train_data = torch.from_numpy(grad_train_data)
-grad_val_data = np.load('att_val.npy')
+grad_val_data = np.loadtxt('advreg_val.t')
 grad_val_data = torch.from_numpy(grad_val_data)
-grad_test_data = np.load('att_test.npy')
+grad_test_data = np.loadtxt('advreg_test.t')
 grad_test_data = torch.from_numpy(grad_test_data)
 print("Grad Data has be loaded")
 
@@ -121,7 +108,7 @@ labels_train_input = torch.zeros(2*train_size, 100)
 for i in range(0, 2*train_size):
     target.zero_grad()
     input = train_data[[i]]
-    output = target(input.cuda())
+    output = target(input)
     if i == 0:
         output_train_input = output.data.cpu()
     else:
@@ -138,7 +125,7 @@ labels_val_input = torch.zeros(2*val_size, 100)
 for i in range(0, 2*val_size):
     target.zero_grad()
     input = val_data[[i]]
-    output = target(input.cuda())
+    output = target(input)
     if i == 0:
         output_val_input = output.data.cpu()
     else:
@@ -155,7 +142,7 @@ labels_test_input = torch.zeros(2*test_size, 100)
 for i in range(0, 2*test_size):
     target.zero_grad()
     input = test_data[[i]]
-    output = target(input.cuda())
+    output = target(input)
     if i == 0:
         output_test_input = output.data.cpu()
     else:
@@ -260,7 +247,6 @@ for i in range(0,2*val_size):
 
 print("Blackbox Features Loaded")
 
-
 att_train_dataset = torch.utils.data.TensorDataset(grad_train_data, bb_train_input, output_train_input, labels_train_input, att_train_label)
 att_train_dataloader = torch.utils.data.DataLoader(att_train_dataset, batch_size=128, shuffle=True, num_workers=2)
 att_val_dataset = torch.utils.data.TensorDataset(grad_val_data, bb_val_input, output_val_input, labels_val_input, att_val_label)
@@ -274,19 +260,14 @@ class Attack(nn.Module):
     def __init__(self, num_classes=2):
         super(Attack, self).__init__()
         self.grad = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=5),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 192, kernel_size=5, padding=2),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(192, 384, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(384, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Linear(600,1024),
+            nn.Tanh(),
+            nn.Linear(1024,512),
+            nn.Tanh(),
+            nn.Linear(512,256),
+            nn.Tanh(),
+            nn.Linear(256,128),
+            nn.Tanh(),
         )
         self.bb = nn.Sequential(
             nn.Linear(4,64),
@@ -303,7 +284,7 @@ class Attack(nn.Module):
             nn.ReLU(),
         )
         self.combine = nn.Sequential(
-            nn.Linear(512, 256),
+            nn.Linear(384, 256),
             nn.ReLU(),
             nn.Linear(256, 128),
             nn.ReLU(),
@@ -327,7 +308,7 @@ attack = nn.DataParallel(attack).cuda()
 optimizer = optim.Adam(attack.parameters(), lr=0.001, betas=(0.9,0.999),eps=1e-08,weight_decay=0,amsgrad=False)
 
 best_acc = 0
-PATH = './attackmod_net3.pth'
+PATH = './advreg_mod_net3.pth'
 
 # train attack model
 for epoch in range(50):  # loop over the dataset multiple times

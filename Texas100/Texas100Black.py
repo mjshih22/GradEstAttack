@@ -2,45 +2,32 @@
 # coding: utf-8
 
 
-import os
+
 import torch
-import torchvision
-import torch.nn as nn
-import numpy as np
-import math
-import sys
-import urllib
-import pickle
-import tarfile
-import torchvision.transforms as transforms
 from utils import *
+from texas import texas
 from membership_inference_attacks import black_box_benchmarks
 
-# define model
-class TexasClassifier(nn.Module):
-    def __init__(self,num_classes=100):
-        super(TexasClassifier, self).__init__()
-
-        self.features = nn.Sequential(
-            nn.Linear(6169,1024),
-            nn.Tanh(),
-            nn.Linear(1024,512),
-            nn.Tanh(),
-            nn.Linear(512,256),
-            nn.Tanh(),
-            nn.Linear(256,128),
-            nn.Tanh(),
-        )
-        self.classifier = nn.Linear(128,num_classes)
-        
-    def forward(self,x):
-        hidden_out = self.features(x)
-        return self.classifier(hidden_out)
-
 # load pretrained model
-model = TexasClassifier(num_classes=100)
-shadow_train_loader, shadow_test_loader, target_train_loader, target_test_loader = prepare_texas_data(100)
-checkpoint = torch.load('texas_natural')
+target = texas(num_classes=100)
+att_train_train, att_train_test, target_train, target_test = prepare_texas_data(100)
+
+test_size = 5000
+split_size = int(test_size/2)
+
+torch.manual_seed(42)
+att_val_train, att_test_train = torch.utils.data.random_split(target_train, [split_size, split_size])
+torch.manual_seed(torch.initial_seed())
+att_val_test, att_test_test = torch.utils.data.random_split(target_test, [split_size, split_size])
+
+att_train_train_loader = torch.utils.data.DataLoader(att_train_train, batch_size=100, shuffle=True, num_workers=2)
+att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=100, shuffle=True, num_workers=2)
+# att_val_train_loader = torch.utils.data.DataLoader(att_val_train, batch_size=100, shuffle=False, num_workers=2)
+# att_val_test_loader = torch.utils.data.DataLoader(att_val_test, batch_size=100, shuffle=False, num_workers=2)
+att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=100, shuffle=True, num_workers=2)
+att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=100, shuffle=True, num_workers=2)
+
+checkpoint = torch.load('texas_advreg')
 state_dict = checkpoint['state_dict']
 
 from collections import OrderedDict
@@ -53,12 +40,12 @@ for k, v in state_dict.items():
         k = k.replace('module.', '')
     new_state_dict[k] = v
 
-model.load_state_dict(new_state_dict)
-model.eval()
+target.load_state_dict(new_state_dict)
+target.eval()
 
 shadow_train_performance,shadow_test_performance,target_train_performance,target_test_performance = \
-prepare_model_performance(model, shadow_train_loader, shadow_test_loader, 
-                            model, target_train_loader, target_test_loader)
+    prepare_model_performance(target, att_train_train_loader, att_train_test_loader, 
+                              target, att_test_train_loader, att_test_test_loader)
     
 print('Perform membership inference attacks!!!')
 MIA = black_box_benchmarks(shadow_train_performance,shadow_test_performance,

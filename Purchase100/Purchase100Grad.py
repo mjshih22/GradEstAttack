@@ -9,10 +9,11 @@ from utils import *
 from purchase import purchase
 import torchvision.transforms as transforms
 from estgrad import estgrad
+from getgrad import getgrad
 
 # load pretrained model
 target = purchase(num_classes=100)
-checkpoint = torch.load('purchase_natural')
+checkpoint = torch.load('purchase_advreg')
 state_dict = checkpoint['state_dict']
 
 from collections import OrderedDict
@@ -51,11 +52,18 @@ att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=
 att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=50, shuffle=True, num_workers=2)
 
 print("Loading Train Data")
-att_train_dataloader = estgrad(target, criterion, att_train_train_loader, att_train_test_loader, train_size, 512, './att_train.t', False)
+att_train_dataloader = getgrad(target, criterion, att_train_train_loader, att_train_test_loader, train_size, 512)
 print("Loading Val Data")
-att_val_dataloader = estgrad(target, criterion, att_val_train_loader, att_val_test_loader, val_size, 256, './att_val.t', False)
+att_val_dataloader = getgrad(target, criterion, att_val_train_loader, att_val_test_loader, val_size, 256)
 print("Loading Test Data")
-att_test_dataloader = estgrad(target, criterion, att_test_train_loader, att_test_test_loader, test_size, 256, './att_test', False)
+att_test_dataloader = getgrad(target, criterion, att_test_train_loader, att_test_test_loader, test_size, 256)
+
+""" print("Loading Train Data")
+att_train_dataloader = estgrad(target, criterion, att_train_train_loader, att_train_test_loader, train_size, 512, './advreg_train.t', True, True)
+print("Loading Val Data")
+att_val_dataloader = estgrad(target, criterion, att_val_train_loader, att_val_test_loader, val_size, 256, './advreg_val.t', True, False)
+print("Loading Test Data")
+att_test_dataloader = estgrad(target, criterion, att_test_train_loader, att_test_test_loader, test_size, 256, './advreg_test.t', True, False) """
 
 print("Data has been loaded")
 
@@ -65,7 +73,7 @@ attack = purchase(num_classes = 2)
 optimizer = optim.Adam(attack.parameters(), lr=0.001, betas=(0.9,0.999),eps=1e-08,weight_decay=0,amsgrad=False)
 
 best_acc = 0
-PATH = './attack_net.pth'
+PATH = './attack_net_advreg2.pth'
 
 # train attack model
 for epoch in range(50):  # loop over the dataset multiple times
@@ -136,7 +144,7 @@ total = 0
 with torch.no_grad():
     for data in att_val_dataloader:
         images, labels = data
-        outputs = attack(images)
+        outputs = attack(images.float())
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels).sum().item()

@@ -9,6 +9,7 @@ import torchvision.transforms as transforms
 import torch.nn as nn
 from alexnet import alexnet
 from getgrad import getgrad
+from estgrad import estgrad
 
 # import CIFAR100 data
 transform = transforms.Compose([
@@ -59,15 +60,19 @@ for k, v in state_dict.items():
     new_state_dict[k] = v
 target.load_state_dict(new_state_dict)
 
+target = nn.DataParallel(target).cuda()
 target.eval()
 
 # set criterion for loss
 criterion = nn.CrossEntropyLoss()
 
 # create data loader with gradients for attack
-att_train_dataloader = getgrad(target, criterion, att_train_train_loader, att_train_test_loader, train_size, batch_size=128)
-att_val_dataloader = getgrad(target, criterion, att_val_train_loader, att_val_test_loader, val_size)
-att_test_dataloader = getgrad(target, criterion, att_test_train_loader, att_test_test_loader, test_size)
+print("Loading Train Data")
+att_train_dataloader = getgrad(target, criterion, att_train_train_loader, att_train_test_loader, train_size, 128)
+print("Loading Val Data")
+att_val_dataloader = getgrad(target, criterion, att_val_train_loader, att_val_test_loader, val_size, 256)
+print("Loading Test Data")
+att_test_dataloader = getgrad(target, criterion, att_test_train_loader, att_test_test_loader, test_size, 256)
 print("Data has been loaded")
     
 # create attack model
@@ -78,7 +83,7 @@ attack = nn.DataParallel(attack).cuda()
 optimizer = optim.Adam(attack.parameters(), lr=0.001, betas=(0.9,0.999),eps=1e-08,weight_decay=0,amsgrad=False)
 
 best_acc = 0
-PATH = './attack_net.pth'
+PATH = './attack_net_true1.pth'
 
 # train attack model
 for epoch in range(50):  # loop over the dataset multiple times
@@ -91,7 +96,7 @@ for epoch in range(50):  # loop over the dataset multiple times
         optimizer.zero_grad()
 
         # forward + backward + optimize
-        outputs = attack(inputs.cuda())
+        outputs = attack(inputs.float().cuda())
         loss = criterion(outputs, labels.cuda())
         loss.backward()
         optimizer.step()
@@ -111,7 +116,7 @@ for epoch in range(50):  # loop over the dataset multiple times
             with torch.no_grad():
                 for data in att_val_dataloader:
                     images, labels = data
-                    outputs = attack(images.cuda())
+                    outputs = attack(images.float().cuda())
                     _, predicted = torch.max(outputs.data, 1)
                     total += labels.size(0)
                     correct += (predicted == labels.cuda()).sum().item()
@@ -136,7 +141,7 @@ total = 0
 with torch.no_grad():
     for data in att_train_dataloader:
         images, labels = data
-        outputs = attack(images.cuda())
+        outputs = attack(images.float().cuda())
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels.cuda()).sum().item()
@@ -150,7 +155,7 @@ total = 0
 with torch.no_grad():
     for data in att_val_dataloader:
         images, labels = data
-        outputs = attack(images.cuda())
+        outputs = attack(images.float().cuda())
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels.cuda()).sum().item()
@@ -162,7 +167,7 @@ total = 0
 with torch.no_grad():
     for data in att_test_dataloader:
         images, labels = data
-        outputs = attack(images.cuda())
+        outputs = attack(images.float().cuda())
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
         correct += (predicted == labels.cuda()).sum().item()

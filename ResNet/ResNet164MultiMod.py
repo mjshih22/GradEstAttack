@@ -5,7 +5,7 @@ import torch
 import torchvision
 import numpy as np
 from utils import *
-from alexnet import alexnet
+from resnet import resnet
 import torch.optim as optim
 import torchvision.transforms as transforms
 import torch.nn as nn
@@ -62,17 +62,19 @@ for data in att_test_test_loader:
 test_data = torch.cat((att_test_train_data, att_test_test_data))
 test_target = torch.cat((att_test_train_target, att_test_test_target))
 
-att_train_train_loader = torch.utils.data.DataLoader(att_train_train, batch_size=256, shuffle=False, num_workers=2)
-att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=256, shuffle=False, num_workers=2)
-att_val_train_loader = torch.utils.data.DataLoader(att_val_train, batch_size=256, shuffle=False, num_workers=2)
-att_val_test_loader = torch.utils.data.DataLoader(att_val_test, batch_size=256, shuffle=False, num_workers=2)
-att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=256, shuffle=False, num_workers=2)
-att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=256, shuffle=False, num_workers=2)
+att_train_train_loader = torch.utils.data.DataLoader(att_train_train, batch_size=100, shuffle=False, num_workers=2)
+att_train_test_loader = torch.utils.data.DataLoader(att_train_test, batch_size=100, shuffle=False, num_workers=2)
+att_val_train_loader = torch.utils.data.DataLoader(att_val_train, batch_size=100, shuffle=False, num_workers=2)
+att_val_test_loader = torch.utils.data.DataLoader(att_val_test, batch_size=100, shuffle=False, num_workers=2)
+att_test_train_loader =  torch.utils.data.DataLoader(att_test_train, batch_size=100, shuffle=False, num_workers=2)
+att_test_test_loader = torch.utils.data.DataLoader(att_test_test, batch_size=100, shuffle=False, num_workers=2)
 
-# create AlexNet model with pretrained parameters
-target = alexnet(num_classes = 100)
+# create ResNet model with pretrained parameters
+target = resnet(depth = 164, block_name='bottleNeck')
+target = nn.DataParallel(target).cuda()
 
 PATH = './model_best.pth.tar'
+
 checkpoint = torch.load(PATH)
 state_dict = checkpoint['state_dict']
 
@@ -81,13 +83,12 @@ new_state_dict = OrderedDict()
 
 for k, v in state_dict.items():
     if 'module' not in k:
-        k = k
+        k = 'module.' + k
     else:
-        k = k.replace('module.', '')
+        k = k
     new_state_dict[k] = v
-target.load_state_dict(new_state_dict)
 
-target = nn.DataParallel(target).cuda()
+target.load_state_dict(new_state_dict)
 target.eval()
 
 # set criterion for loss
@@ -327,7 +328,7 @@ attack = nn.DataParallel(attack).cuda()
 optimizer = optim.Adam(attack.parameters(), lr=0.001, betas=(0.9,0.999),eps=1e-08,weight_decay=0,amsgrad=False)
 
 best_acc = 0
-PATH = './attackmod_net3.pth'
+PATH = './attackmod_net5.pth'
 
 # train attack model
 for epoch in range(50):  # loop over the dataset multiple times

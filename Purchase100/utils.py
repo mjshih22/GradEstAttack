@@ -111,3 +111,55 @@ def prepare_purchase_data(batch_size=250):
 
     print('Data loading finished')
     return shadow_train, shadow_test, target_train, target_test
+
+def entr_comp(prediction):
+    entr = 0
+    for num in prediction:
+        if num != 0:
+            entr += -1*num*np.log(num)
+    return entr
+    
+def m_entr_comp(prediction, label):
+    entr = 0
+    for i in range(len(prediction)):
+        p = prediction[i]
+        if i==label:
+            if p==0:
+                entr += -1*1*np.log(1e-30)
+            else:
+                entr += -1*(1-p)*np.log(p)
+        else:
+            if p==1:
+                entr += -1*1*np.log(1e-30)
+            else:
+                entr += -1*p*np.log(1-p)
+    return entr
+    
+def thre_setting(tr_values, te_values):
+    value_list = np.concatenate((tr_values, te_values))
+    thre, max_acc = 0, 0
+    for value in value_list:
+        tr_ratio = np.sum(tr_values>=value)/(len(tr_values)+0.0)
+        te_ratio = np.sum(te_values<value)/(len(te_values)+0.0)
+        acc = 0.5*(tr_ratio + te_ratio)
+        if acc > max_acc:
+            thre, max_acc = value, acc
+    return thre
+
+def mem_inf_thre(num_classes, s_tr_values, s_te_values, t_tr_values, t_te_values, s_tr_labels,
+                   s_te_labels, t_tr_labels, t_te_labels):
+    # perform membership inference attack by thresholding feature values: the feature can be prediction confidence,
+    # (negative) prediction entropy, and (negative) modified entropy
+    predicted = torch.ones(9866)
+    thresholds = np.zeros(100)
+    for num in range(num_classes):
+        thre = thre_setting(s_tr_values[s_tr_labels==num], s_te_values[s_te_labels==num])
+        thresholds[num] = thre
+
+    for i in range(0,4933):
+        if(t_tr_values[i]>=thresholds[t_tr_labels[i]]):
+                predicted[i] = 0
+    for i in range(0,4933):
+        if(t_te_values[i]>=thresholds[t_te_labels[i]]):
+            predicted[4933+i] = 0
+    return predicted
